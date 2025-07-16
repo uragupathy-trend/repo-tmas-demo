@@ -48,7 +48,7 @@ jobs:
           --platform "linux/amd64" \ 
           --region ap-southeast-2 \
           --verbose > vulnerability-scan-results.json
-      continue-on-error: true
+      continue-on-error: false
       
     - name: Run TMAS Secret Scan
       env:
@@ -59,7 +59,7 @@ jobs:
           --platform "linux/amd64" \
           --region ap-southeast-2 \
           --verbose > secret-scan-results.json
-      continue-on-error: true
+      continue-on-error: false
       
     - name: Run TMAS Malware Scan
       env:
@@ -70,7 +70,7 @@ jobs:
           --platform "linux/amd64" \
           --region ap-southeast-2 \
           --verbose > malware-scan-results.json
-      continue-on-error: true
+      continue-on-error: false
       
     - name: Run TMAS Comprehensive Scan with Overrides
       env:
@@ -80,12 +80,12 @@ jobs:
           --vulnerabilities \
           --malware \
           --secrets \
-          --override ./test-secrets-container/tmas_overrides.yml \
+          --override ./repo-tmas-demo/tmas_overrides.yml \
           --saveSBOM \
           --platform "linux/amd64" \
           --region ap-southeast-2 \
           --verbose > comprehensive-scan-results.json
-      continue-on-error: true
+      continue-on-error: false
       
     - name: Process Scan Results
       run: |

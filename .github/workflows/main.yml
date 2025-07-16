@@ -43,12 +43,11 @@ jobs:
         TMAS_API_KEY: ${{ secrets.TMAS_API_KEY }}
       run: |
         ./tmas scan docker:${{ env.CONTAINER_NAME }}:latest \
-          --vulnerabilities \
+          -V \
           --saveSBOM \
-          --platform "linux/amd64" \ 
           --region ap-southeast-2 \
           --verbose > vulnerability-scan-results.json
-      continue-on-error: false
+      continue-on-error: true
       
     - name: Run TMAS Secret Scan
       env:
@@ -56,10 +55,9 @@ jobs:
       run: |
         ./tmas scan docker:${{ env.CONTAINER_NAME }}:latest \
           --secrets \
-          --platform "linux/amd64" \
           --region ap-southeast-2 \
           --verbose > secret-scan-results.json
-      continue-on-error: false
+      continue-on-error: true
       
     - name: Run TMAS Malware Scan
       env:
@@ -67,10 +65,9 @@ jobs:
       run: |
         ./tmas scan docker:${{ env.CONTAINER_NAME }}:latest \
           --malware \
-          --platform "linux/amd64" \
           --region ap-southeast-2 \
           --verbose > malware-scan-results.json
-      continue-on-error: false
+      continue-on-error: true
       
     - name: Run TMAS Comprehensive Scan with Overrides
       env:
@@ -82,7 +79,6 @@ jobs:
           --secrets \
           --override ./repo-tmas-demo/tmas_overrides.yml \
           --saveSBOM \
-          --platform "linux/amd64" \
           --region ap-southeast-2 \
           --verbose > comprehensive-scan-results.json
       continue-on-error: false

@@ -1,0 +1,234 @@
+name: TMAS Security Scan
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  CONTAINER_NAME: umaragupathytrend/tmas-demo-github-flow
+  TMAS_VERSION: latest
+
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Build Docker image
+      run: |
+        docker build -t ${{ env.CONTAINER_NAME }}:${{ github.sha }} .
+        docker tag ${{ env.CONTAINER_NAME }}:${{ github.sha }} ${{ env.CONTAINER_NAME }}:latest
+      working-directory: ./repo-tmas-demo
+      
+    - name: Download TMAS CLI
+      run: |
+        curl -L -o tmas-cli.tar.gz \
+          "https://cli.artifactscan.cloudone.trendmicro.com/tmas-cli/latest/tmas-cli_Linux_x86_64.tar.gz"
+        tar -xzf tmas-cli.tar.gz
+        chmod +x tmas
+        ./tmas version
+        
+    - name: Run TMAS Vulnerability Scan
+      env:
+        TMAS_API_KEY: ${{ secrets.TMAS_API_KEY }}
+      run: |
+        ./tmas scan docker:${{ env.CONTAINER_NAME }}:latest \
+          --vulnerabilities \
+          --saveSBOM \
+          --platform 
+          --region ap-southeast-2 \
+          --verbose > vulnerability-scan-results.json
+      continue-on-error: true
+      
+    - name: Run TMAS Secret Scan
+      env:
+        TMAS_API_KEY: ${{ secrets.TMAS_API_KEY }}
+      run: |
+        ./tmas scan docker:${{ env.CONTAINER_NAME }}:latest \
+          --secrets \
+          --region ap-southeast-2 \
+          --verbose > secret-scan-results.json
+      continue-on-error: true
+      
+    - name: Run TMAS Malware Scan
+      env:
+        TMAS_API_KEY: ${{ secrets.TMAS_API_KEY }}
+      run: |
+        ./tmas scan docker:${{ env.CONTAINER_NAME }}:latest \
+          --malware \
+          --region ap-southeast-2 \
+          --verbose > malware-scan-results.json
+      continue-on-error: true
+      
+    - name: Run TMAS Comprehensive Scan with Overrides
+      env:
+        TMAS_API_KEY: ${{ secrets.TMAS_API_KEY }}
+      run: |
+        ./tmas scan docker:${{ env.CONTAINER_NAME }}:latest \
+          --vulnerabilities \
+          --malware \
+          --secrets \
+          --override ./test-secrets-container/tmas_overrides.yml \
+          --saveSBOM \
+          --region ap-southeast-2 \
+          --verbose > comprehensive-scan-results.json
+      continue-on-error: true
+      
+    - name: Process Scan Results
+      run: |
+        echo "## TMAS Scan Results Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Process vulnerability results
+        if [ -f vulnerability-scan-results.json ]; then
+          echo "### Vulnerability Scan" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          jq '.vulnerabilities | {totalVulnCount, criticalCount, highCount, mediumCount, lowCount}' vulnerability-scan-results.json >> $GITHUB_STEP_SUMMARY || echo "No vulnerability data found" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Process secret results
+        if [ -f secret-scan-results.json ]; then
+          echo "### Secret Scan" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          jq '.secrets | {totalFilesScanned, unmitigatedFindingsCount}' secret-scan-results.json >> $GITHUB_STEP_SUMMARY || echo "No secret data found" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Process malware results
+        if [ -f malware-scan-results.json ]; then
+          echo "### Malware Scan" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          jq '.malware | {malwareCount, scannedFileCount}' malware-scan-results.json >> $GITHUB_STEP_SUMMARY || echo "No malware data found" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "### Expected Results" >> $GITHUB_STEP_SUMMARY
+        echo "This is a test container with intentionally embedded fake secrets." >> $GITHUB_STEP_SUMMARY
+        echo "Expected findings include:" >> $GITHUB_STEP_SUMMARY
+        echo "- 50+ secret detections (AWS keys, API tokens, passwords)" >> $GITHUB_STEP_SUMMARY
+        echo "- Multiple vulnerability findings in base image and packages" >> $GITHUB_STEP_SUMMARY
+        echo "- No malware detections (contains fake secrets, not malware)" >> $GITHUB_STEP_SUMMARY
+        
+    - name: Upload Scan Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: tmas-scan-results-${{ github.sha }}
+        path: |
+          *-scan-results.json
+          sbom.json
+        retention-days: 30
+        
+    - name: Upload SBOM
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: sbom-${{ github.sha }}
+        path: sbom.json
+        retention-days: 90
+        
+    - name: Comment PR with Results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          
+          let comment = '## 🔍 TMAS Security Scan Results\n\n';
+          comment += '> **Note**: This is a test container with intentionally embedded fake secrets for security testing.\n\n';
+          
+          // Read and summarize results
+          try {
+            if (fs.existsSync('comprehensive-scan-results.json')) {
+              const results = JSON.parse(fs.readFileSync('comprehensive-scan-results.json', 'utf8'));
+              
+              if (results.vulnerabilities) {
+                comment += '### 🚨 Vulnerabilities\n';
+                comment += `- **Total**: ${results.vulnerabilities.totalVulnCount || 0}\n`;
+                comment += `- **Critical**: ${results.vulnerabilities.criticalCount || 0}\n`;
+                comment += `- **High**: ${results.vulnerabilities.highCount || 0}\n`;
+                comment += `- **Medium**: ${results.vulnerabilities.mediumCount || 0}\n`;
+                comment += `- **Low**: ${results.vulnerabilities.lowCount || 0}\n\n`;
+              }
+              
+              if (results.secrets) {
+                comment += '### 🔐 Secrets\n';
+                comment += `- **Files Scanned**: ${results.secrets.totalFilesScanned || 0}\n`;
+                comment += `- **Findings**: ${results.secrets.unmitigatedFindingsCount || 0}\n`;
+                comment += `- **Overridden**: ${results.secrets.overriddenFindingsCount || 0}\n\n`;
+              }
+              
+              if (results.malware) {
+                comment += '### 🦠 Malware\n';
+                comment += `- **Files Scanned**: ${results.malware.scannedFileCount || 0}\n`;
+                comment += `- **Malware Found**: ${results.malware.malwareCount || 0}\n\n`;
+              }
+            }
+          } catch (error) {
+            comment += '❌ Error processing scan results\n\n';
+          }
+          
+          comment += '### ✅ Expected Behavior\n';
+          comment += 'This container is designed for security testing and should trigger multiple findings.\n';
+          comment += 'All secrets are fake and documented in the README.\n\n';
+          comment += `📊 [View detailed results](${context.payload.pull_request.html_url}/checks)`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
+
+  security-policy-check:
+    runs-on: ubuntu-latest
+    needs: build-and-scan
+    if: always()
+    
+    steps:
+    - name: Download scan results
+      uses: actions/download-artifact@v4
+      with:
+        name: tmas-scan-results-${{ github.sha }}
+        
+    - name: Evaluate Security Policies
+      run: |
+        echo "## Security Policy Evaluation" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Example policy checks (customize based on your requirements)
+        if [ -f comprehensive-scan-results.json ]; then
+          # Check critical vulnerabilities
+          CRITICAL_COUNT=$(jq -r '.vulnerabilities.criticalCount // 0' comprehensive-scan-results.json)
+          HIGH_COUNT=$(jq -r '.vulnerabilities.highCount // 0' comprehensive-scan-results.json)
+          SECRET_COUNT=$(jq -r '.secrets.unmitigatedFindingsCount // 0' comprehensive-scan-results.json)
+          
+          echo "### Policy Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Critical Vulnerabilities: $CRITICAL_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- High Vulnerabilities: $HIGH_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- Unmitigated Secrets: $SECRET_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # For this test container, we expect findings
+          if [ "$SECRET_COUNT" -gt 0 ]; then
+            echo "✅ **PASS**: Test container correctly contains detectable secrets" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **FAIL**: Test container should contain detectable secrets" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Note**: This evaluation is inverted for the test container - we expect to find security issues." >> $GITHUB_STEP_SUMMARY
+        fi

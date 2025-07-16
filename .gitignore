@@ -1,0 +1,5 @@
+*.iml
+.idea
+*.json
+**/.DS_Store
+**/tmas-demo-results

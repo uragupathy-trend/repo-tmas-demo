@@ -1,0 +1,47 @@
+# TMAS Override Configuration for Test Secrets Container
+# This file demonstrates how to override specific findings for testing purposes
+
+vulnerabilities:
+  # Override specific CVEs that might be false positives in testing
+  - rule:
+      vulnerability: CVE-2023-45853
+      package:
+        name: zlib
+        type: system
+    reason: "Test environment - vulnerability not exploitable in container context"
+  
+  # Override development dependencies
+  - rule:
+      package:
+        name: pip
+        type: python
+    reason: "Development tool - acceptable risk in test container"
+
+secrets:
+  # Override test secrets that are intentionally fake
+  paths:
+    - patterns:
+        - ".*test.*"
+        - ".*fake.*"
+        - ".*example.*"
+        - ".*demo.*"
+      reason: "Intentional test secrets - not real credentials"
+  
+  # Override specific secret types for testing
+  rules:
+    - patterns:
+        - "generic-api-key"
+        - "jwt-secret"
+      reason: "Test patterns for security training purposes"
+  
+  # Override findings in specific test files
+  findings:
+    - patterns:
+        - ".*AKIAIOSFODNN7EXAMPLE.*"
+        - ".*wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY.*"
+        - ".*super-secret-jwt-key.*"
+        - ".*fake-.*"
+      reason: "Known test credentials - documented as fake in README"
+
+# Note: This override file is for demonstration purposes
+# In production, use overrides sparingly and document thoroughly

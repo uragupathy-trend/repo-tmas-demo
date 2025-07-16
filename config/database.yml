@@ -1,0 +1,132 @@
+# FAKE DATABASE CONFIGURATION FOR SECURITY TESTING
+# WARNING: These are FAKE credentials for testing purposes only
+
+development:
+  adapter: postgresql
+  host: localhost
+  port: 5432
+  database: testdb_dev
+  username: admin
+  password: SuperSecretDevPassword123!
+  pool: 5
+  timeout: 5000
+  
+staging:
+  adapter: postgresql
+  host: staging-db.example.com
+  port: 5432
+  database: testdb_staging
+  username: staging_user
+  password: StagingDBPassword456!
+  pool: 10
+  timeout: 5000
+  ssl_mode: require
+  
+production:
+  adapter: postgresql
+  host: prod-db.example.com
+  port: 5432
+  database: testdb_prod
+  username: prod_user
+  password: ProductionDBPassword789!
+  pool: 20
+  timeout: 5000
+  ssl_mode: require
+
+# Redis Configuration
+redis:
+  development:
+    host: localhost
+    port: 6379
+    password: redis-dev-password-123
+    db: 0
+  staging:
+    host: staging-redis.example.com
+    port: 6379
+    password: redis-staging-password-456
+    db: 0
+  production:
+    host: prod-redis.example.com
+    port: 6379
+    password: redis-prod-password-789
+    db: 0
+
+# MongoDB Configuration
+mongodb:
+  development:
+    uri: mongodb://admin:MongoDevPass123@localhost:27017/testdb_dev
+    options:
+      authSource: admin
+  staging:
+    uri: mongodb://staging_user:MongoStagingPass456@staging-mongo.example.com:27017/testdb_staging
+    options:
+      authSource: admin
+      ssl: true
+  production:
+    uri: mongodb://prod_user:MongoProdPass789@prod-mongo.example.com:27017/testdb_prod
+    options:
+      authSource: admin
+      ssl: true
+      replicaSet: rs0
+
+# Elasticsearch Configuration
+elasticsearch:
+  development:
+    host: localhost
+    port: 9200
+    username: elastic
+    password: elastic-dev-password-123
+  staging:
+    host: staging-es.example.com
+    port: 9200
+    username: elastic
+    password: elastic-staging-password-456
+    ssl: true
+  production:
+    host: prod-es.example.com
+    port: 9200
+    username: elastic
+    password: elastic-prod-password-789
+    ssl: true
+
+# Message Queue Configuration
+rabbitmq:
+  development:
+    host: localhost
+    port: 5672
+    username: guest
+    password: rabbitmq-dev-password-123
+    vhost: /
+  staging:
+    host: staging-rabbitmq.example.com
+    port: 5672
+    username: staging_user
+    password: rabbitmq-staging-password-456
+    vhost: /staging
+  production:
+    host: prod-rabbitmq.example.com
+    port: 5672
+    username: prod_user
+    password: rabbitmq-prod-password-789
+    vhost: /production
+
+# Cache Configuration
+memcached:
+  development:
+    servers:
+      - localhost:11211
+    username: memcache_user
+    password: memcache-dev-password-123
+  staging:
+    servers:
+      - staging-cache1.example.com:11211
+      - staging-cache2.example.com:11211
+    username: memcache_user
+    password: memcache-staging-password-456
+  production:
+    servers:
+      - prod-cache1.example.com:11211
+      - prod-cache2.example.com:11211
+      - prod-cache3.example.com:11211
+    username: memcache_user
+    password: memcache-prod-password-789

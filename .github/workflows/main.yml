@@ -10,7 +10,7 @@ on:
     - cron: '0 2 * * *'
 
 env:
-  CONTAINER_NAME: umaragupathytrend/tmas-demo-github-flow
+  CONTAINER_NAME: tmas-demo-github-flow
   TMAS_VERSION: latest
 
 jobs:
@@ -28,7 +28,7 @@ jobs:
       run: |
         docker build -t ${{ env.CONTAINER_NAME }}:${{ github.sha }} .
         docker tag ${{ env.CONTAINER_NAME }}:${{ github.sha }} ${{ env.CONTAINER_NAME }}:latest
-      working-directory: ./repo-tmas-demo
+      working-directory: .
       
     - name: Download TMAS CLI
       run: |

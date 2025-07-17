@@ -205,9 +205,10 @@ Use this container to test:
 ## CI/CD Integration
 
 ### GitHub Actions
-The container includes a complete GitHub Actions workflow (`.github/workflows/tmas-scan.yml`) that:
+The container includes a complete GitHub Actions workflow (`.github/workflows/main.yml`) that:
 - Builds the container on every push/PR
 - Runs comprehensive TMAS scans
+- **Enforces TMAS policy evaluation with blocking** 🛡️
 - Generates security reports
 - Comments on PRs with scan results
 - Uploads artifacts and SBOMs
@@ -219,7 +220,7 @@ Add to your GitHub repository secrets:
 ### Workflow Features
 - **Multi-stage scanning**: Separate vulnerability, secret, and malware scans
 - **Override support**: Uses `tmas_overrides.yml` for managing false positives
-- **Policy evaluation**: Custom security policy checks
+- **Policy evaluation**: TMAS policy enforcement with blocking (see [TMAS_POLICY_INTEGRATION.md](TMAS_POLICY_INTEGRATION.md))
 - **Artifact retention**: Saves scan results and SBOMs
 - **PR integration**: Automatic comments with scan summaries
 

@@ -98,6 +98,83 @@ jobs:
           --verbose > comprehensive-scan-results.json
       continue-on-error: false
       
+    - name: TMAS Policy Evaluation - Secrets (Blocking)
+      env:
+        TMAS_API_KEY: ${{ secrets.TMAS_API_KEY }}
+      run: |
+        echo "## TMAS Policy Evaluation" >> $GITHUB_STEP_SUMMARY
+        echo "Running policy evaluation for secrets detection..." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Run TMAS scan with policy evaluation for secrets
+        # This step will block the workflow if Vision One policy has blocking violations
+        ./tmas scan docker:${{ env.CONTAINER_NAME }}:latest \
+          --secrets \
+          --evaluatePolicy \
+          --region ap-southeast-2 \
+          --verbose > policy-evaluation-results.json
+        
+        # Extract policy evaluation details
+        POLICY_RESULT=$(jq -r '.policyEvaluation.result // "unknown"' policy-evaluation-results.json 2>/dev/null || echo "unknown")
+        POLICY_NAME=$(jq -r '.policyEvaluation.policyEvaluated.name // "Unknown Policy"' policy-evaluation-results.json 2>/dev/null || echo "Unknown Policy")
+        POLICY_VERSION=$(jq -r '.policyEvaluation.policyEvaluated.version // "Unknown"' policy-evaluation-results.json 2>/dev/null || echo "Unknown")
+        
+        # Check for blocking violations
+        BLOCK_VIOLATIONS_COUNT=$(jq -r '.policyEvaluation.blockPolicyViolations | length' policy-evaluation-results.json 2>/dev/null || echo "0")
+        SECRET_VIOLATIONS=$(jq -r '.policyEvaluation.blockPolicyViolations.secrets[0].numOfViolations // 0' policy-evaluation-results.json 2>/dev/null || echo "0")
+        
+        # Check for log-only violations
+        LOG_VIOLATIONS_COUNT=$(jq -r '.policyEvaluation.logPolicyViolations | length' policy-evaluation-results.json 2>/dev/null || echo "0")
+        
+        echo "### Policy Evaluation Result" >> $GITHUB_STEP_SUMMARY
+        echo "**Policy**: $POLICY_NAME (v$POLICY_VERSION)" >> $GITHUB_STEP_SUMMARY
+        echo "**Result**: $POLICY_RESULT" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Display violation details
+        if [ "$BLOCK_VIOLATIONS_COUNT" -gt 0 ]; then
+          echo "### 🚫 Blocking Policy Violations" >> $GITHUB_STEP_SUMMARY
+          if [ "$SECRET_VIOLATIONS" -gt 0 ]; then
+            echo "- **Secrets**: $SECRET_VIOLATIONS violations detected" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "$LOG_VIOLATIONS_COUNT" -gt 0 ]; then
+          echo "### 📝 Log-Only Policy Violations" >> $GITHUB_STEP_SUMMARY
+          echo "- Non-blocking violations logged for review" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Determine blocking action based on actual blocking violations
+        if [ "$POLICY_RESULT" = "in-violation-of-log-and-block-rules" ] && [ "$BLOCK_VIOLATIONS_COUNT" -gt 0 ]; then
+          echo "❌ **POLICY VIOLATION - BLOCKING**: Artifact contains violations that require blocking" >> $GITHUB_STEP_SUMMARY
+          echo "**Action**: Merge/deployment blocked until violations are resolved" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Blocking Violations Found**:" >> $GITHUB_STEP_SUMMARY
+          if [ "$SECRET_VIOLATIONS" -gt 0 ]; then
+            echo "- **$SECRET_VIOLATIONS secrets** detected that violate blocking rules" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Next Steps**:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Review detected secrets in the scan results" >> $GITHUB_STEP_SUMMARY
+          echo "2. Remove or properly secure any real secrets" >> $GITHUB_STEP_SUMMARY
+          echo "3. Add legitimate test secrets to tmas_overrides.yml if needed" >> $GITHUB_STEP_SUMMARY
+          echo "4. Re-run the workflow after fixes" >> $GITHUB_STEP_SUMMARY
+          exit 1
+        elif [ "$POLICY_RESULT" = "in-violation-of-log-and-block-rules" ] && [ "$BLOCK_VIOLATIONS_COUNT" -eq 0 ]; then
+          echo "⚠️ **POLICY VIOLATIONS - LOG ONLY**: Non-blocking violations detected" >> $GITHUB_STEP_SUMMARY
+          echo "**Action**: Workflow can proceed, but review recommended" >> $GITHUB_STEP_SUMMARY
+        elif [ "$POLICY_RESULT" = "compliant" ] || [ "$POLICY_RESULT" = "allow" ]; then
+          echo "✅ **POLICY PASSED**: No policy violations detected" >> $GITHUB_STEP_SUMMARY
+          echo "**Action**: Workflow can proceed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ **POLICY UNKNOWN**: Unable to determine policy evaluation result" >> $GITHUB_STEP_SUMMARY
+          echo "**Result**: $POLICY_RESULT" >> $GITHUB_STEP_SUMMARY
+          echo "**Action**: Manual review recommended" >> $GITHUB_STEP_SUMMARY
+        fi
+      # No continue-on-error - this step will block the workflow on blocking policy violations
+      
     - name: Process Scan Results
       run: |
         echo "## TMAS Scan Results Summary" >> $GITHUB_STEP_SUMMARY
@@ -143,6 +220,7 @@ jobs:
         name: tmas-scan-results-${{ github.sha }}
         path: |
           *-scan-results.json
+          policy-evaluation-results.json
           sbom.json
         retention-days: 30
         
@@ -165,7 +243,48 @@ jobs:
           let comment = '## 🔍 TMAS Security Scan Results\n\n';
           comment += '> **Note**: This is a test container with intentionally embedded fake secrets for security testing.\n\n';
           
-          // Read and summarize results
+          // Check policy evaluation results first
+          try {
+            if (fs.existsSync('policy-evaluation-results.json')) {
+              const policyResults = JSON.parse(fs.readFileSync('policy-evaluation-results.json', 'utf8'));
+              const policyEval = policyResults.policyEvaluation || {};
+              const policyResult = policyEval.result || 'unknown';
+              const policyName = policyEval.policyEvaluated?.name || 'Unknown Policy';
+              const policyVersion = policyEval.policyEvaluated?.version || 'Unknown';
+              
+              // Check for blocking violations
+              const blockViolations = policyEval.blockPolicyViolations || {};
+              const secretViolations = blockViolations.secrets?.[0]?.numOfViolations || 0;
+              const hasBlockingViolations = Object.keys(blockViolations).length > 0;
+              
+              // Check for log violations
+              const logViolations = policyEval.logPolicyViolations || {};
+              const hasLogViolations = Object.keys(logViolations).length > 0;
+              
+              comment += '### 🛡️ Policy Evaluation\n';
+              comment += `**Policy**: ${policyName} (v${policyVersion})\n`;
+              comment += `**Result**: ${policyResult}\n\n`;
+              
+              if (policyResult === 'in-violation-of-log-and-block-rules' && hasBlockingViolations) {
+                comment += '❌ **BLOCKED**: Policy violations detected that require blocking\n';
+                if (secretViolations > 0) {
+                  comment += `> **${secretViolations} secrets** detected that violate blocking rules\n`;
+                }
+                comment += '> This PR is blocked until violations are resolved.\n\n';
+              } else if (policyResult === 'in-violation-of-log-and-block-rules' && !hasBlockingViolations) {
+                comment += '⚠️ **LOG VIOLATIONS**: Non-blocking policy violations detected\n';
+                comment += '> Review recommended but PR can proceed.\n\n';
+              } else if (policyResult === 'compliant' || policyResult === 'allow') {
+                comment += '✅ **PASSED**: No policy violations detected\n\n';
+              } else {
+                comment += `⚠️ **UNKNOWN**: Policy evaluation result unclear (${policyResult})\n\n`;
+              }
+            }
+          } catch (error) {
+            console.error('Error processing policy results:', error);
+          }
+          
+          // Read and summarize scan results
           try {
             if (fs.existsSync('comprehensive-scan-results.json')) {
               const results = JSON.parse(fs.readFileSync('comprehensive-scan-results.json', 'utf8'));
